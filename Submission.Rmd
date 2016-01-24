@@ -1,0 +1,121 @@
+---
+title: "Exercise prediction"
+author: "Volodymyr Dovhanyk"
+date: "Saturday, January 23, 2016"
+output: html_document
+---
+**Execution Summary**
+Based on data available from Jawbone Up, Nike FuelBand, and Fitbit random forest model was generated to predict activity type based on telemetry devices output.
+
+**Data overview**
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+Based on collected data we are going to predict participant activity.
+``` {r cache=F, echo=FALSE}
+setwd("D:/rtraining/ml")
+library (caret)
+```
+```{r cache=TRUE}
+trainingGD<-read.csv("data/training.csv")
+testing<-read.csv("data/testing.csv")
+```
+
+Using uploaded data and caret package we created two subsets from the training one - training and validation
+``` {r cache=F}
+set.seed (321)
+intrain<-createDataPartition (y=trainingGD$classe, p=.6, list=F)
+training<-trainingGD[intrain,]
+validation<-trainingGD[-intrain,]
+```
+Results of such kind of splinting is presented below
+``` {r cache=F, echo=FALSE}
+dim(training); dim(validation); dim (testing)
+```
+On the first general view into the data we can not define the simple single classifier to determ the exercise class. Basic plots are listed below
+
+```{r cache=F, echo=FALSE}
+par(mfrow=c(2,2))
+plot(training$pitch_belt, training$roll_belt, col=training$classe,
+     xlab="pitch_belt", ylab="roll_belt")
+
+plot(training$roll_belt, training$yaw_belt, col=training$classe,
+     xlab="roll_belt", ylab="yaw_belt")
+
+plot(training$roll_belt, training$yaw_arm, col=training$classe,
+     xlab="roll_belt", ylab="yaw_belt")
+plot(training$yaw_dumbbell, training$yaw_belt, col=training$classe,
+     xlab="yaw_dumbbell", ylab="yaw_belt")
+```
+In training set we can find out that a lot of variables have mostly NA values. Variance evaluation enable us to make the decision about what variables should be conducted in the final model.
+```{r cache=F}
+nsv<-nearZeroVar(training, saveMetrics=TRUE)
+nsv
+```
+
+**Data preprocessing**
+
+To avoid model overfitting we exclude variables with near zero values and variables that mainly have NA values using custom function. Result are saved in data set *finalTraining*. 
+``` {r cache=F, echo=FALSE}
+clearData<-function(indata, nsv) {
+    i<-which(nsv$nzv==FALSE)
+    outData<-indata[,i]
+    outData<-outData[ , colSums(is.na(outData)) == 0]
+    outData$classe<-NULL
+    outData$classe<-indata$classe
+    outData<-outData[,!names(outData)%in%c("X", "raw_timestamp_part_2", 
+                                           "cvtd_timestamp", "raw_timestamp_part_1",
+                                           "user_name")]
+    return (outData)
+}
+finalTraining<-clearData(training, nsv)
+```
+We use PCA to evaluate the data and define main components that can be used. 
+``` {r cache=F}
+tr.pca <- prcomp(finalTraining[,1:53],
+                 center = TRUE,
+                 scale. = TRUE) 
+summary(tr.pca)
+```
+AS we can observe we need 16 components to explain 80% of total variance.
+**Building model**
+Based on results of PCA we can compute principle components and train the model.
+After numerous experiments random forest model was chosen for current classification task.
+``` {r cache=F}
+preProc<-preProcess(finalTraining[,-54], method="pca", pcaComp=16)
+trainPC<-predict(preProc, finalTraining[,-54])
+fitPC.rf<-train(finalTraining$classe~., 
+                data=trainPC, 
+                method="rf",
+                ntree = 20,
+                tuneLength = 4)
+```
+Received results are presented below
+```{r cach=F}
+print(fitPC.rf$finalModel)
+```
+
+***Model validation***
+
+For cross validation we use separate data set. Validation result are listed below.
+```{r cache=F}
+finalValidation<-clearData(validation, nsv)
+validPC.rf<-predict(preProc, finalValidation[,-54])
+predClasse<-predict(fitPC.rf, newdata=validPC.rf)
+
+validPC.rf$predRight<-predClasse==finalValidation$classe
+table(predClasse,validPC.rf$predRight)
+```
+Based on received results we can evaluate the model on testing data and use such model for activity classification.
+
+***Model testing***
+
+Model was tested on testing set. results are presented below.
+```{r cache =F}
+finalTesting<-clearData(testing, nsv)
+testingPC.rf<-predict(preProc, finalTesting[,-54])
+predClasse<-predict(fitPC.rf, newdata=testingPC.rf)
+```
+Results received after the classification the testing data are listed below
+```{r cache=F}
+predClasse
+```
